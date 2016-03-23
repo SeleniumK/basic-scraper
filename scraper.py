@@ -2,7 +2,8 @@ import requests
 import io
 import sys
 from bs4 import BeautifulSoup
-# import geocoder
+import geocoder
+import json
 
 
 INSPECTION_DOMAIN = "http://info.kingcounty.gov"
@@ -122,7 +123,7 @@ def extract_score_data(listing):
     return data
 
 
-def generate_results(real_call=False):
+def generate_results(real_call=False, count=10):
     args = {
         "Zip_Code": "98101",
         "Inspection_Start": "03/03/2014",
@@ -136,7 +137,7 @@ def generate_results(real_call=False):
     text = load_inspection_page(fh)
     parsed = beautify_html(text)
     listings = extract_data_listings(parsed)
-    for listing in listings:
+    for listing in listings[:count]:
         metadata = extract_restaurant_metadata(listing)
         inspection_row = listing.find_all(is_inspection_row)
         score_data = extract_score_data(listing)
@@ -148,12 +149,36 @@ def get_geojson(results):
     address = " ".join(results.get("Address", []))
     if address is None:
         return None
-    else:
-        response = geocoder.google(address)
-        return response.geojson
+    response = geocoder.google(address)
+    geojson = response.geojson
+    inspection_data = {}
+    important_keys = (
+        "Business Name",
+        "Average Score",
+        "High Score",
+        "Total Inspections",
+        "Address",
+    )
+    for key, val in results.items():
+        if key not in important_keys:
+            continue
+        if isinstance(val, list):
+            val = val[0]
+        inspection_data[key] = val
+    new_address = geojson["properties"].get("address")
+    if new_address:
+        inspection_data["Address"] = new_address
+    geojson["properties"] = inspection_data
+    return geojson
 
 
 if __name__ == "__main__":
     real_call = len(sys.argv) > 1 and sys.argv[1] == 'real_call'
+    total_result = {"type": "FeatureCollection", "features": []}
     for result in generate_results(real_call):
-        print(result)
+        geo_result = get_geojson(result)
+        print(geo_result)
+        total_result["features"].append(geo_result)
+    with open("my_map.json", "w") as fh:
+        json.dump(total_result, fh)
+
