@@ -2,6 +2,7 @@ import requests
 import io
 import sys
 from bs4 import BeautifulSoup
+# import geocoder
 
 
 INSPECTION_DOMAIN = "http://info.kingcounty.gov"
@@ -114,14 +115,14 @@ def extract_score_data(listing):
     if samples:
         average = total / float(samples)
     data = {
-        "Total Score": total,
+        "Total Inspections": samples,
         "Average": average,
         "High Score": high_score,
     }
     return data
 
 
-if __name__ == "__main__":
+def generate_results(real_call=False):
     args = {
         "Zip_Code": "98101",
         "Inspection_Start": "03/03/2014",
@@ -129,7 +130,7 @@ if __name__ == "__main__":
     }
     fh = "inspection_page.html"
 
-    if len(sys.argv) > 1 and sys.argv[1] == 'real-call':
+    if real_call:
         write_to_inspection_page(fh, **args)
 
     text = load_inspection_page(fh)
@@ -139,5 +140,20 @@ if __name__ == "__main__":
         metadata = extract_restaurant_metadata(listing)
         inspection_row = listing.find_all(is_inspection_row)
         score_data = extract_score_data(listing)
-        for key, value in score_data.items():
-            print(key, value)
+        metadata.update(score_data)
+        yield metadata
+
+
+def get_geojson(results):
+    address = " ".join(results.get("Address", []))
+    if address is None:
+        return None
+    else:
+        response = geocoder.google(address)
+        return response.geojson
+
+
+if __name__ == "__main__":
+    real_call = len(sys.argv) > 1 and sys.argv[1] == 'real_call'
+    for result in generate_results(real_call):
+        print(result)
